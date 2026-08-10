@@ -1,0 +1,207 @@
+name: block-radar
+
+# ---------------------------------------------------------------------------
+# Shared definition for the three containers that run the Laravel codebase:
+# php-fpm, the queue worker and the scheduler. They differ only in command.
+#
+# Only the php service carries the build definition. If all three declared it
+# they would build the same tag concurrently and race each other exporting the
+# image; the workers just consume what php builds.
+# ---------------------------------------------------------------------------
+x-backend: &backend
+  image: block-radar/backend:${BACKEND_TARGET:-development}
+  pull_policy: never
+  restart: unless-stopped
+  env_file:
+    # Optional so a fresh clone can `docker compose up` before copying it; the
+    # entrypoint creates backend/.env from the example on first boot.
+    - path: ./backend/.env
+      required: false
+  volumes:
+    - ./backend:/var/www/html
+    # Named volume so the container's vendor/ is not shadowed by the host and
+    # native extensions stay platform-correct.
+    - backend-vendor:/var/www/html/vendor
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+    - block-radar
+
+services:
+  # -------------------------------------------------------------------------
+  # MySQL 8.4 LTS
+  # -------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: block-radar-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-block_radar}
+      MYSQL_USER: ${DB_USERNAME:-block_radar}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+    ports:
+      - "${DB_FORWARD_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/block-radar.cnf:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${DB_ROOT_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - block-radar
+
+  # -------------------------------------------------------------------------
+  # Redis — cache, sessions and queue
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: block-radar-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_FORWARD_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - block-radar
+
+  # -------------------------------------------------------------------------
+  # Laravel — PHP 8.3 FPM
+  # -------------------------------------------------------------------------
+  php:
+    <<: *backend
+    container_name: block-radar-php
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      target: ${BACKEND_TARGET:-development}
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    environment:
+      # Only this container copies .env, installs vendor and migrates, so the
+      # worker and scheduler cannot race it on the shared volume.
+      BLOCK_RADAR_BOOTSTRAP: "true"
+    healthcheck:
+      # Set by the entrypoint once composer install and migrations have run.
+      test: ["CMD-SHELL", "test -f /tmp/block-radar-ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 180s
+
+  # -------------------------------------------------------------------------
+  # Nginx — public entry point for the API
+  # -------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: block-radar-nginx
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_FORWARD_PORT:-8000}:80"
+    volumes:
+      # Nginx serves the same tree php-fpm reads, so paths resolve identically.
+      - ./backend:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      php:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: that resolves to ::1 first inside the
+      # container and nginx listens on IPv4 only, so the check never connects.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/up"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - block-radar
+
+  # -------------------------------------------------------------------------
+  # Queue worker — CCOD import and Companies House enrichment will run here
+  # -------------------------------------------------------------------------
+  queue:
+    <<: *backend
+    container_name: block-radar-queue
+    # --memory is raised from the default 128MB: the CCOD importer peaks around
+    # 72MB and a larger ccod.chunk_size pushes that up. --timeout is a fallback
+    # only; ImportCcodFile sets its own six-hour timeout, which wins.
+    command: ["php", "artisan", "queue:work", "redis", "--sleep=3", "--tries=3", "--max-time=3600", "--timeout=900", "--memory=512"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      php:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------------
+  # Scheduler — drives the monthly import once it exists
+  # -------------------------------------------------------------------------
+  scheduler:
+    <<: *backend
+    container_name: block-radar-scheduler
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      php:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------------
+  # Nuxt 4 frontend
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: ${FRONTEND_TARGET:-development}
+    image: block-radar/frontend:${FRONTEND_TARGET:-development}
+    container_name: block-radar-frontend
+    restart: unless-stopped
+    environment:
+      # Browser-side calls go through the published nginx port.
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8000/api}
+      # Server-side rendering stays on the compose network.
+      NUXT_API_INTERNAL_BASE: ${NUXT_API_INTERNAL_BASE:-http://nginx/api}
+      NUXT_PUBLIC_APP_NAME: ${APP_NAME:-Block Radar}
+      # Bind mounts on macOS and Windows do not deliver inotify events.
+      CHOKIDAR_USEPOLLING: "true"
+      NUXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "${FRONTEND_FORWARD_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      # Keeps the image's linux node_modules from being shadowed by whatever
+      # the host installed. .nuxt is deliberately NOT a volume: it is generated
+      # output and a persistent one serves stale builds after a rebuild.
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      nginx:
+        condition: service_started
+    networks:
+      - block-radar
+
+volumes:
+  mysql-data:
+  redis-data:
+  backend-vendor:
+  frontend-node-modules:
+
+networks:
+  block-radar:
+    driver: bridge

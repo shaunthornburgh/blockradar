@@ -1,0 +1,44 @@
+# Dependencies are installed inside the image for the correct platform.
+# Copying the host's would bake in packages resolved against the host's PHP or
+# Node version — which is exactly how a PHP 8.5 vendor tree once ended up in a
+# PHP 8.3 image.
+**/vendor
+**/node_modules
+
+# Generated build output
+**/.nuxt
+**/.output
+**/.nitro
+**/.cache
+**/dist
+
+# Secrets never belong in an image; the entrypoint creates .env from .env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Laravel runtime state
+backend/storage/logs/*.log
+backend/storage/framework/cache/data/**
+backend/storage/framework/sessions/**
+backend/storage/framework/views/**
+backend/bootstrap/cache/*.php
+backend/database/*.sqlite
+**/.phpunit.result.cache
+**/.phpunit.cache
+
+# VCS, tooling and docs
+.git
+.gitignore
+.github
+.composer
+**/.DS_Store
+**/Thumbs.db
+.idea
+.vscode
+README.md
+docker-compose*.yml
+
+# Raw CCOD extracts — these are gigabytes
+/data
+**/*.csv

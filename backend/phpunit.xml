@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <!--
+            These are <server> entries, not the <env> entries Laravel ships by
+            default, and that difference matters in Docker.
+
+            Compose injects DB_CONNECTION, CACHE_STORE and QUEUE_CONNECTION
+            into the container as real process variables. PHPUnit's <env>
+            element only writes putenv() and $_ENV, while Laravel's env()
+            helper reads $_SERVER first — so with <env> alone the container's
+            values win and the suite runs RefreshDatabase against the live
+            MySQL database and flushes the real Redis.
+
+            <server> writes $_SERVER and is applied unconditionally. The
+            forced <env> duplicates below keep getenv() consistent for any
+            library that reads it directly.
+        -->
+        <server name="APP_ENV" value="testing"/>
+        <server name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <server name="BCRYPT_ROUNDS" value="4"/>
+        <server name="BROADCAST_CONNECTION" value="null"/>
+        <server name="CACHE_STORE" value="array"/>
+        <server name="DB_CONNECTION" value="sqlite"/>
+        <server name="DB_DATABASE" value=":memory:"/>
+        <server name="DB_HOST" value=""/>
+        <server name="DB_PORT" value=""/>
+        <server name="DB_USERNAME" value=""/>
+        <server name="DB_PASSWORD" value=""/>
+        <server name="DB_URL" value=""/>
+        <server name="MAIL_MAILER" value="array"/>
+        <server name="QUEUE_CONNECTION" value="sync"/>
+        <server name="SESSION_DRIVER" value="array"/>
+        <server name="REDIS_HOST" value=""/>
+        <server name="PULSE_ENABLED" value="false"/>
+        <server name="TELESCOPE_ENABLED" value="false"/>
+        <server name="NIGHTWATCH_ENABLED" value="false"/>
+
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="DB_CONNECTION" value="sqlite" force="true"/>
+        <env name="DB_DATABASE" value=":memory:" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+    </php>
+</phpunit>

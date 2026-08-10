@@ -1,0 +1,21 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Composer cache created by the scaffolding container
+/.composer
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Large CCOD extracts must never be committed
+/data/
+*.csv
+!backend/tests/**/*.csv
