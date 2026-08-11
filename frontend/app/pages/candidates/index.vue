@@ -56,7 +56,8 @@ const columns: TableColumn<Candidate>[] = [
   { accessorKey: 'estimated_units', header: 'Units' },
   { id: 'yield', header: 'Yield' },
   { id: 'uplift', header: 'Est. uplift' },
-  { id: 'stage', header: 'Stage' }
+  { id: 'stage', header: 'Stage' },
+  { id: 'actions', header: '' }
 ]
 
 async function changeStage(candidate: Candidate, next: PipelineStage) {
@@ -161,8 +162,11 @@ function stageMenu(candidate: Candidate) {
         </template>
 
         <template #address-cell="{ row }">
-          <div class="min-w-0 max-w-md">
-            <p class="font-medium truncate">
+          <NuxtLink
+            :to="`/candidates/${row.original.id}`"
+            class="block min-w-0 max-w-md group"
+          >
+            <p class="font-medium truncate group-hover:text-primary transition-colors">
               {{ row.original.title?.property_address }}
             </p>
             <p class="text-xs text-muted truncate">
@@ -170,7 +174,7 @@ function stageMenu(candidate: Candidate) {
               · {{ row.original.title?.postcode }}
               · {{ row.original.title?.region }}
             </p>
-          </div>
+          </NuxtLink>
         </template>
 
         <template #company-cell="{ row }">
@@ -211,6 +215,17 @@ function stageMenu(candidate: Candidate) {
               trailing-icon="i-lucide-chevron-down"
             />
           </UDropdownMenu>
+        </template>
+
+        <template #actions-cell="{ row }">
+          <UButton
+            :to="`/candidates/${row.original.id}`"
+            icon="i-lucide-arrow-right"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            :aria-label="`Open ${row.original.title?.title_number}`"
+          />
         </template>
 
         <template #empty>

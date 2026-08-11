@@ -152,9 +152,13 @@ block-radar/
 └── frontend/                   # Nuxt 4 + Nuxt UI
     ├── Dockerfile              # Multi-stage: development → build → production
     └── app/
+        ├── components/candidate/  # Detail page cards: MetricsRow, ScoreBreakdown,
+        │                       #   PropertyCard, OwnershipCard, ResearchLinks,
+        │                       #   DealEstimates, WorkflowCard, NotesPanel, EpcRating
         ├── layouts/            # default (dashboard shell), auth
-        ├── pages/              # index, login, candidates, titles, companies
-        ├── composables/        # useApi, useAuth, useDebouncedRef
+        ├── pages/              # index, login, candidates, candidates/[id],
+        │                       #   titles, companies
+        ├── composables/        # useApi, useAuth, useDebouncedRef, useResearchLinks
         ├── middleware/         # auth.global.ts
         ├── utils/format.ts     # Money, dates, score and stage colours
         └── types/index.ts      # Shared API types
@@ -207,7 +211,8 @@ it is deliberately not `*`.
 | `POST` | `/api/logout` | Revokes the current token |
 | `GET` | `/api/dashboard` | Totals, pipeline counts, top candidates, latest import |
 | `GET` | `/api/candidates` | `stage`, `min_score`, `region`, `search`, `sort`, `direction`, `per_page` |
-| `GET` | `/api/candidates/{id}` | Includes notes |
+| `GET` | `/api/candidates/{id}` | Detail payload: title + EPC aggregates + matched certificates, company with distress signals, notes, assignee |
+| `GET` | `/api/users` | Assignee picker |
 | `PATCH` | `/api/candidates/{id}` | Stage, assignee, next action, estimates |
 | `GET`/`POST` | `/api/candidates/{id}/notes` | |
 | `GET` | `/api/titles` | `split_only=1` applies the freehold + MAI filter |
@@ -721,8 +726,6 @@ domain.
 
 1. Real GDV / rental-yield modelling. `title_split_upside` uses price per m² of
    EPC floor area where available, and price per estimated unit otherwise.
-2. Candidate detail page with the notes timeline, and surfacing
-   `score_breakdown` in the dashboard.
-3. Automated download of the monthly extracts from the HMLR and MHCLG APIs.
+2. Automated download of the monthly extracts from the HMLR and MHCLG APIs.
 5. An address-to-UPRN source (OS Open UPRN / AddressBase). The EPC matcher
    already has a UPRN path; CCOD supplies no UPRNs, so it is dormant.

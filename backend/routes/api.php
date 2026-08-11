@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CandidateNoteController;
 use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\TitleController;
+use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login'])
@@ -38,6 +39,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/titles', [TitleController::class, 'index'])->name('titles.index');
     Route::get('/titles/{title}', [TitleController::class, 'show'])->name('titles.show');
+
+    Route::get('/users', [UserController::class, 'index'])->name('users.index');
 
     Route::get('/companies', [CompanyController::class, 'index'])->name('companies.index');
     Route::get('/companies/{company}', [CompanyController::class, 'show'])->name('companies.show');

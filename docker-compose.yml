@@ -12,11 +12,21 @@ x-backend: &backend
   image: block-radar/backend:${BACKEND_TARGET:-development}
   pull_policy: never
   restart: unless-stopped
-  env_file:
-    # Optional so a fresh clone can `docker compose up` before copying it; the
-    # entrypoint creates backend/.env from the example on first boot.
-    - path: ./backend/.env
-      required: false
+  # Deliberately NO env_file for backend/.env.
+  #
+  # Compose reads an env_file once, when the container is created, and injects
+  # it as real process environment. Laravel's Dotenv is immutable — it will not
+  # overwrite a variable that already exists — so that snapshot silently wins
+  # over the file for the container's whole life.
+  #
+  # On a first boot the snapshot is taken before the entrypoint has run
+  # `key:generate`, so APP_KEY is injected empty and every later read of the
+  # generated key is shadowed. Anything touching the encrypter then dies with
+  # MissingAppKeyException, while the token-authenticated API carries on
+  # working and hides it.
+  #
+  # Laravel reads backend/.env off the bind mount by itself, so nothing is
+  # lost. The entrypoint sources DB_* from that file for its readiness probe.
   volumes:
     - ./backend:/var/www/html
     # Named volume so the container's vendor/ is not shadowed by the host and

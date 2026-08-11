@@ -70,11 +70,22 @@ class CandidateController extends Controller
         return CandidateResource::collection($candidates);
     }
 
+    /**
+     * Everything the detail page needs in one request: the title with its EPC
+     * aggregates and matched certificates, the proprietor company with its
+     * Companies House signals, the notes timeline and the assignee.
+     */
     public function show(Candidate $candidate): CandidateResource
     {
-        return CandidateResource::make(
-            $candidate->load(['title.company', 'assignedTo', 'notes.user'])
-        );
+        return CandidateResource::make($candidate->load([
+            'title.company',
+            // Freshest survey first — that is the one the aggregates came from.
+            'title.epcCertificates' => fn ($query) => $query
+                ->orderByDesc('lodgement_date')
+                ->limit(100),
+            'assignedTo',
+            'notes.user',
+        ]));
     }
 
     public function update(UpdateCandidateRequest $request, Candidate $candidate): CandidateResource

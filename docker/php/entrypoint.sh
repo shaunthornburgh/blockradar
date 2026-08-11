@@ -23,6 +23,19 @@ if [ "${BLOCK_RADAR_BOOTSTRAP:-false}" = "true" ]; then
 
     mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
 
+    # The readiness probe below needs the database settings. They are read from
+    # .env here rather than injected by Compose, because an injected copy would
+    # shadow the file for the life of the container — including the APP_KEY
+    # this script is about to generate.
+    if [ -f .env ]; then
+        set -a
+        # shellcheck disable=SC1090
+        . /dev/stdin <<EOF
+$(grep -E '^DB_[A-Z_]+=' .env | tr -d '\r')
+EOF
+        set +a
+    fi
+
     # Checked over PDO rather than a mysql client: Alpine ships MariaDB's
     # client, which rejects MySQL 8.4's self-signed TLS certificate. This also
     # proves the exact credentials Laravel is about to use.
