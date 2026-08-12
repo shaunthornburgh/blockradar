@@ -19,3 +19,6 @@ Thumbs.db
 /data/
 *.csv
 !backend/tests/**/*.csv
+
+# Backups
+/backups

@@ -47,6 +47,18 @@ class Company extends Model
 {
     use HasFactory;
 
+    /** Statuses meaning the company is in an insolvency process. */
+    public const DISTRESSED_STATUSES = [
+        'liquidation',
+        'receivership',
+        'administration',
+        'voluntary-arrangement',
+        'insolvency-proceedings',
+    ];
+
+    /** Statuses meaning the company no longer exists. */
+    public const DISSOLVED_STATUSES = ['dissolved', 'converted-closed', 'closed', 'removed'];
+
     protected function casts(): array
     {
         return [
@@ -129,18 +141,74 @@ class Company extends Model
      */
     public function isDistressed(): bool
     {
-        return in_array($this->status, [
-            'liquidation',
-            'receivership',
-            'administration',
-            'voluntary-arrangement',
-            'insolvency-proceedings',
-        ], true);
+        return in_array($this->status, self::DISTRESSED_STATUSES, true);
     }
 
     public function isDissolved(): bool
     {
-        return in_array($this->status, ['dissolved', 'converted-closed', 'closed', 'removed'], true);
+        return in_array($this->status, self::DISSOLVED_STATUSES, true);
+    }
+
+    /**
+     * Short labels for every distress signal Companies House currently shows.
+     *
+     * Empty means either "no signals" or "not enriched yet" — check
+     * isEnriched() to tell those apart. The list is what the candidates list
+     * row displays, and applyDistressFilter() below selects on exactly the
+     * same set of conditions.
+     *
+     * @return array<int, string>
+     */
+    public function distressSignals(): array
+    {
+        $signals = [];
+
+        if ($this->accounts_overdue === true) {
+            $signals[] = 'accounts overdue';
+        }
+
+        if ($this->confirmation_statement_overdue === true) {
+            $signals[] = 'confirmation statement overdue';
+        }
+
+        if ($this->isDistressed()) {
+            $signals[] = str_replace('-', ' ', (string) $this->status);
+        }
+
+        if ($this->isDissolved()) {
+            $signals[] = str_replace('-', ' ', (string) $this->status);
+        }
+
+        if ($this->has_insolvency_history === true) {
+            $signals[] = 'insolvency history';
+        }
+
+        return array_values(array_unique($signals));
+    }
+
+    public function hasDistressSignals(): bool
+    {
+        return $this->distressSignals() !== [];
+    }
+
+    /**
+     * Constrains a query to companies carrying at least one distress signal.
+     *
+     * Takes a plain query builder and a table name rather than being a model
+     * scope, because the candidates list reaches companies through a join
+     * rather than through the relation.
+     *
+     * @param  \Illuminate\Contracts\Database\Query\Builder  $query
+     */
+    public static function applyDistressFilter($query, string $table = 'companies'): void
+    {
+        $query->where(function ($inner) use ($table) {
+            $inner->where($table.'.accounts_overdue', true)
+                ->orWhere($table.'.confirmation_statement_overdue', true)
+                ->orWhere($table.'.has_insolvency_history', true)
+                ->orWhereIn($table.'.status', self::DISTRESSED_STATUSES)
+                ->orWhereIn($table.'.status', self::DISSOLVED_STATUSES);
+        });
     }
 
     /** @param  Builder<static>  $query */

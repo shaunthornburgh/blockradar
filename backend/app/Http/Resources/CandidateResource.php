@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\Candidate;
+use App\Services\Candidates\MufbSignals;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -12,6 +13,8 @@ class CandidateResource extends JsonResource
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
+        $mufb = app(MufbSignals::class);
+
         return [
             'id' => $this->id,
             'stage' => $this->stage->value,
@@ -21,6 +24,17 @@ class CandidateResource extends JsonResource
             'score_breakdown' => $this->score_breakdown ?? [],
             'scored_at' => $this->scored_at?->toIso8601String(),
             'estimated_units' => $this->estimated_units,
+
+            // The unit count the list should actually show, and where it came
+            // from: 'epc' means certificates were counted, 'estimate' means it
+            // was read out of the address. See MufbSignals::unitsFor().
+            'units' => $mufb->unitsFor($this->resource),
+            'units_source' => $mufb->unitSourceFor($this->resource),
+
+            // Derived per request, not stored — retuning config/blockradar.php
+            // moves this without a rescore.
+            'mufb' => $mufb->forCandidate($this->resource),
+
             'estimated_gdv' => $this->estimated_gdv,
             'estimated_uplift' => $this->estimated_uplift,
             'gross_yield' => $this->gross_yield !== null ? (float) $this->gross_yield : null,

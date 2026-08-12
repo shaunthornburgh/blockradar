@@ -38,6 +38,13 @@ class CompanyResource extends JsonResource
             'is_distressed' => $this->isDistressed(),
             'is_dissolved' => $this->isDissolved(),
 
+            // Every distress signal in one list, matching what
+            // `company_distressed=true` selects on. Empty for a company that
+            // is either clean or not yet enriched — `is_enriched` separates
+            // those two.
+            'distress_signals' => $this->distressSignals(),
+            'has_distress_signals' => $this->hasDistressSignals(),
+
             'is_enriched' => $this->isEnriched(),
             'enriched_at' => $this->enriched_at?->toIso8601String(),
             'enrichment_status' => $this->enrichment_status?->value,

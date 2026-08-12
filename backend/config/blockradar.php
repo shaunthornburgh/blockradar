@@ -165,6 +165,95 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | MUFB confidence
+    |--------------------------------------------------------------------------
+    |
+    | The candidate population is "freehold + multiple address indicator",
+    | which also catches terraces, land parcels and mixed commercial. This
+    | block scores how likely a candidate is to be an actual block of flats,
+    | out of 100, from evidence that already exists on the title.
+    |
+    | It is deliberately *not* the deal score in `scoring` below. That answers
+    | "is this worth doing?"; this answers "is this even a block?". They are
+    | kept apart so tuning one never silently moves the other, and because
+    | this one is derived at query time — changing these weights takes effect
+    | immediately and needs no rescore.
+    |
+    | The same weights drive the API filter (`min_mufb`), the `mufb` sort and
+    | the badge on the list row, so all three always agree.
+    |
+    | Keep the weights summing to 100. Nothing enforces it, and going over
+    | only means confidences above 100 rather than anything breaking, but the
+    | level thresholds below are expressed on that scale.
+    |
+    */
+
+    'mufb' => [
+        'weights' => [
+            // Two or more surveyed dwellings in one building is the single
+            // strongest piece of evidence we have, so it carries the most.
+            // Requires a match at medium confidence or better.
+            'multiple_epc_certificates' => 40,
+
+            // The matched EPCs describe flats rather than a house, a shop or
+            // a bungalow.
+            'epc_flat_property_type' => 25,
+
+            // At or above scoring.minimum_units, from whichever unit source
+            // is the most trustworthy for the title.
+            'meets_minimum_units' => 20,
+
+            // The CCOD address itself names flats. Weak on its own — plenty
+            // of real blocks are addressed "12-18 Some Street" — but it is
+            // the only residential signal available before EPC enrichment.
+            'flat_address_keyword' => 15,
+        ],
+
+        // Matched against a lower-cased `epc_property_type`.
+        'flat_property_types' => ['flat', 'maisonette'],
+
+        // Matched as substrings against a lower-cased property address.
+        'flat_address_keywords' => ['flat', 'flats', 'apartment', 'apartments', 'maisonette'],
+
+        // Band boundaries for the badge on the list row, and for the
+        // `min_mufb` shorthands.
+        'levels' => [
+            'high' => 65,
+            'medium' => 35,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Candidate list defaults
+    |--------------------------------------------------------------------------
+    |
+    | Applied by the candidates page when it is opened with no query string at
+    | all. The frontend writes them into the URL rather than applying them
+    | invisibly, so the filter bar always reflects what is being asked for and
+    | "Clear" genuinely shows the whole population.
+    |
+    | These are served over /meta so the page and the API agree on one
+    | definition. Set to an empty array to land on the unfiltered list.
+    |
+    */
+
+    'candidate_defaults' => [
+        // A matched EPC is what separates "a block of flats" from "a freehold
+        // with more than one address on it".
+        'has_epc' => true,
+
+        // Below four units a split rarely pays for itself.
+        'min_units' => (int) env('CANDIDATE_DEFAULT_MIN_UNITS', 4),
+
+        // Titles whose unit count could not be worked out are excluded by the
+        // default view — with min_units set they would otherwise dominate it.
+        // Flipping this to true in the UI keeps them.
+        'include_unknown_units' => false,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Companies House enrichment
     |--------------------------------------------------------------------------
     */

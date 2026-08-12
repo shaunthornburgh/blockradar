@@ -206,11 +206,12 @@ it is deliberately not `*`.
 | Method | Endpoint | Notes |
 | --- | --- | --- |
 | `POST` | `/api/login` | Returns a token. Throttled to 10/min. |
-| `GET` | `/api/meta` | Pipeline stages. Public. |
+| `GET` | `/api/meta` | Pipeline stages, the candidates-list default preset, sort keys, MUFB bands. Public. |
 | `GET` | `/api/user` | Signed-in user |
 | `POST` | `/api/logout` | Revokes the current token |
 | `GET` | `/api/dashboard` | Totals, pipeline counts, top candidates, latest import |
-| `GET` | `/api/candidates` | `stage`, `min_score`, `region`, `search`, `sort`, `direction`, `per_page` |
+| `GET` | `/api/candidates` | [Filters below](#finding-real-blocks-of-flats) |
+| `GET` | `/api/candidates/filter-options` | Regions and postcode areas present in the candidate population |
 | `GET` | `/api/candidates/{id}` | Detail payload: title + EPC aggregates + matched certificates, company with distress signals, notes, assignee |
 | `GET` | `/api/users` | Assignee picker |
 | `PATCH` | `/api/candidates/{id}` | Stage, assignee, next action, estimates |
@@ -226,6 +227,93 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/login \
   -d '{"email":"admin@blockradar.test","password":"password"}' | jq -r .token)
 
 curl -s http://localhost:8000/api/dashboard -H "Authorization: Bearer $TOKEN" | jq .data.totals
+```
+
+---
+
+## Finding real blocks of flats
+
+The candidate population is "freehold + multiple address indicator", which is
+the widest net HM Land Registry lets us cast. It also catches terraces held
+under one title, land parcels, parades of shops and houses with an outbuilding.
+Separating the actual MUFBs out of that is what the candidates list is for.
+
+### MUFB confidence
+
+Every candidate carries a `mufb` block, scored 0-100 from evidence already on
+the title:
+
+| Signal | Points | Why |
+| --- | --- | --- |
+| Two or more matched EPC certificates | 40 | Each certificate is one surveyed dwelling. The strongest evidence available, and it needs a match at medium confidence or better. |
+| EPC property type is a flat or maisonette | 25 | The building is residential and subdivided. |
+| Meets `scoring.minimum_units` | 20 | Enough units for a split to pay for itself. |
+| The address names flats | 15 | Weak on its own — plenty of real blocks read "12-18 Some Street" — but it is the only residential signal before EPC enrichment. |
+
+65 and above shows as **high**, 35 and above as **medium**. The weights live in
+`blockradar.mufb` and are **derived at query time**, so retuning them takes
+effect on the next request — no rescore, and nothing is written to the database.
+
+This is deliberately separate from the deal `score`. The score answers "is this
+worth doing?"; MUFB confidence answers "is this even a block?".
+
+### Candidate filters
+
+`GET /api/candidates`:
+
+| Parameter | Notes |
+| --- | --- |
+| `search` | Address, title number, postcode, CCOD proprietor name, Companies House name or number |
+| `stage` | A pipeline stage. An unknown one is a 422, not a silent no-op. |
+| `min_score`, `max_score` | 0-100 on the deal score |
+| `min_mufb` | `high`, `medium`, `low`, or a number |
+| `region` | Matched against the CCOD region, e.g. `GREATER LONDON` |
+| `postcode_area` | The letters at the front of the outward code: `M`, `LS`, `SW` |
+| `min_units` | See below |
+| `include_unknown_units` | `true` keeps titles whose unit count is unknown |
+| `has_epc` | `true` requires a match at medium confidence or better — a postcode-only match attached the neighbours' certificates and evidences nothing |
+| `min_epc_certificates` | Raw count on the title |
+| `company_distressed` | Overdue accounts, overdue confirmation statement, insolvency history, in an insolvency process, or dissolved |
+| `has_charges` | Registered charges at Companies House |
+| `archived` | `true` shows the archive instead of the live pipeline |
+| `sort` | `mufb`, `score`, `units`, `epc_certificate_count`, `created_at`, `updated_at`, `scored_at`, `next_action_at` |
+| `direction` | `asc` / `desc` |
+| `per_page` | 1-100, default 25 |
+
+Filters combine — every one narrows what the others left.
+
+**Units.** `min_units` and `sort=units` use the best count available for the
+title: a count of matched EPC certificates where one exists, otherwise the
+candidate's own figure (which the API lets a user override), otherwise the
+estimate parsed out of the CCOD address. Each row reports which it used in
+`units_source` — `epc` or `estimate`.
+
+**Unknown unit counts.** Plenty of addresses cannot be parsed and have no EPC
+match, so their count is `null`. With `min_units` set they are excluded by
+default, because they would otherwise dominate the list. `include_unknown_units=true`
+keeps them, which matters in regions EPC enrichment has not reached yet.
+
+### The default view
+
+Opening `/candidates` with no query string applies the **Likely MUFBs** preset
+from `blockradar.candidate_defaults` — currently `has_epc=true` and
+`min_units=4`. The page writes those into the URL rather than applying them
+invisibly, so the filter bar shows exactly what is being asked for and
+**Clear all** genuinely reveals the whole population.
+
+Filter state lives entirely in the query string, so any view is a shareable
+link and Back works. `?view=all` is the frontend's marker for "deliberately
+unfiltered" — without it, an empty query string would re-trigger the preset.
+The API ignores it.
+
+```bash
+# The default view, ranked by how likely each one is to be a block
+curl -s "http://localhost:8000/api/candidates?has_epc=true&min_units=4&sort=mufb" \
+  -H "Authorization: Bearer $TOKEN" | jq '.data[] | {units, units_source, mufb}'
+
+# London blocks whose owner is under filing pressure
+curl -s "http://localhost:8000/api/candidates?min_mufb=high&region=GREATER%20LONDON&company_distressed=true" \
+  -H "Authorization: Bearer $TOKEN" | jq '.meta.total'
 ```
 
 ---
@@ -696,7 +784,14 @@ env-overridable:
   how long enrichment stays fresh.
 - **Scoring** — relative weights for area yield, estimated units, split upside,
   ownership duration, company dormancy and absence of charges, plus the
-  high-priority threshold.
+  high-priority threshold. Changing these needs a `candidates:rescore` to take
+  effect on existing rows.
+- **MUFB confidence** — the weights and band boundaries behind
+  [MUFB confidence](#mufb-confidence). Derived per request, so a change is live
+  immediately and no rescore is involved.
+- **Candidate defaults** — the "Likely MUFBs" preset the candidates page lands
+  on. Served over `/api/meta` so the page and the config cannot drift apart;
+  set it to an empty array to land on the unfiltered list.
 
 Both API keys are free:
 

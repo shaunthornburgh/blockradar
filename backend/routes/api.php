@@ -21,6 +21,15 @@ Route::get('/meta', fn () => response()->json([
             'label' => $stage->label(),
             'order' => $stage->order(),
         ])->all(),
+
+        // The "Likely MUFBs" preset. Served rather than hard-coded in the
+        // frontend so the page and config/blockradar.php cannot drift apart.
+        'candidate_defaults' => (object) config('blockradar.candidate_defaults', []),
+
+        'candidate_sorts' => array_keys(CandidateController::SORTS),
+
+        // Where the confidence badge changes colour.
+        'mufb_levels' => (object) config('blockradar.mufb.levels', []),
     ],
 ]))->name('meta');
 
@@ -31,6 +40,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
 
     Route::get('/candidates', [CandidateController::class, 'index'])->name('candidates.index');
+    // Ahead of the {candidate} route, or the binding swallows it.
+    Route::get('/candidates/filter-options', [CandidateController::class, 'filterOptions'])
+        ->name('candidates.filter-options');
     Route::get('/candidates/{candidate}', [CandidateController::class, 'show'])->name('candidates.show');
     Route::patch('/candidates/{candidate}', [CandidateController::class, 'update'])->name('candidates.update');
 

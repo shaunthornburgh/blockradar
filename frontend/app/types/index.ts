@@ -36,6 +36,9 @@ export interface Company {
   has_insolvency_history?: boolean | null
   is_distressed?: boolean
   is_dissolved?: boolean
+  /** Every distress signal as a short label, e.g. ['accounts overdue']. */
+  distress_signals?: string[]
+  has_distress_signals?: boolean
 
   is_enriched?: boolean
   enriched_at: string | null
@@ -142,6 +145,20 @@ export interface ScoreBreakdown {
   components: Record<string, ScoreComponent>
 }
 
+export type MufbLevel = 'high' | 'medium' | 'low'
+
+/**
+ * How likely the candidate is to be an actual block of flats, as opposed to a
+ * terrace, a plot of land or a parade of shops. Derived per request from the
+ * weights in the backend's config/blockradar.php — never stored, so it moves
+ * the moment those weights are retuned.
+ */
+export interface MufbConfidence {
+  confidence: number
+  level: MufbLevel
+  signals: string[]
+}
+
 export interface Candidate {
   id: number
   stage: PipelineStage
@@ -151,6 +168,11 @@ export interface Candidate {
   score_breakdown: ScoreBreakdown | Record<string, never>
   scored_at: string | null
   estimated_units: number | null
+  /** The best unit count available, preferring counted EPC certificates. */
+  units: number | null
+  /** 'epc' when the certificates were counted, 'estimate' when the address was parsed. */
+  units_source: 'epc' | 'estimate' | null
+  mufb: MufbConfidence
   /** Pence. */
   estimated_gdv: number | null
   /** Pence, may be negative. */
@@ -198,6 +220,30 @@ export interface DashboardSummary {
   pipeline: Array<{ stage: PipelineStage, label: string, count: number }>
   top_candidates: Candidate[]
   latest_import: CcodImport | null
+}
+
+/**
+ * The "Likely MUFBs" preset the candidates page lands on. Served by the API so
+ * the page and config/blockradar.php cannot drift apart.
+ */
+export interface CandidateDefaults {
+  has_epc?: boolean
+  min_units?: number
+  include_unknown_units?: boolean
+  min_score?: number
+}
+
+export interface AppMeta {
+  stages: Array<{ value: PipelineStage, label: string, order: number }>
+  candidate_defaults: CandidateDefaults
+  candidate_sorts: string[]
+  mufb_levels: { high: number, medium: number }
+}
+
+/** Values worth offering in the pickers, taken from the candidate population. */
+export interface CandidateFilterOptions {
+  regions: string[]
+  postcode_areas: string[]
 }
 
 /** Laravel wraps single resources and `response()->json` payloads in `data`. */

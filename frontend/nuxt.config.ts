@@ -76,7 +76,13 @@ export default defineNuxtConfig({
         'lucide:flame',
         'lucide:layers',
         'lucide:arrow-right',
-        'lucide:check'
+        'lucide:check',
+        'lucide:building',
+        'lucide:sliders-horizontal',
+        'lucide:arrow-up-down',
+        'lucide:arrow-down-wide-narrow',
+        'lucide:arrow-up-narrow-wide',
+        'lucide:x'
       ]
     }
   }

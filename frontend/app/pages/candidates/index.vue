@@ -1,44 +1,78 @@
 <script setup lang="ts">
 import type { TableColumn } from '@nuxt/ui'
-import type { ApiCollection, ApiResource, Candidate, PipelineStage } from '~/types'
+import type { CandidateFilters } from '~/composables/useCandidateFilters'
+import type {
+  ApiCollection,
+  ApiResource,
+  AppMeta,
+  Candidate,
+  CandidateFilterOptions,
+  PipelineStage
+} from '~/types'
 
 useSeoMeta({ title: 'Candidates' })
 
 const api = useApi()
 const toast = useToast()
+const route = useRoute()
+const router = useRouter()
 
-const search = ref('')
-const stage = ref<PipelineStage | 'all'>('all')
-const minScore = ref(0)
-const page = ref(1)
-
-interface StageOption { value: PipelineStage | 'all', label: string }
+const PER_PAGE = 20
 
 const { data: meta } = await useAsyncData(
   'meta',
-  () => api<ApiResource<{ stages: Array<{ value: PipelineStage, label: string }> }>>('/meta')
+  () => api<ApiResource<AppMeta>>('/meta')
 )
 
-const stageOptions = computed<StageOption[]>(() => [
-  { value: 'all', label: 'All stages' },
-  ...(meta.value?.data.stages ?? []).map(s => ({ value: s.value, label: s.label }))
-])
+const { data: filterOptions } = await useAsyncData(
+  'candidate-filter-options',
+  () => api<ApiResource<CandidateFilterOptions>>('/candidates/filter-options')
+)
 
-const debouncedSearch = useDebouncedRef(search, 300)
+const preset = computed(() => presetFilters(meta.value?.data.candidate_defaults))
 
-// Filter changes must reset paging, otherwise page 4 of a narrower result set
-// comes back empty.
-watch([debouncedSearch, stage, minScore], () => {
-  page.value = 1
+/**
+ * Landing on a bare /candidates applies the "Likely MUFBs" preset — but by
+ * writing it into the URL rather than applying it behind the scenes, so the
+ * filter bar shows what is being asked for and "Clear all" genuinely reveals
+ * the whole population.
+ */
+if (Object.keys(route.query).length === 0) {
+  await navigateTo(
+    { path: route.path, query: queryFromFilters(preset.value) },
+    { replace: true }
+  )
+}
+
+const filters = computed<CandidateFilters>(() => filtersFromQuery(route.query))
+
+const isPreset = computed(() => {
+  const current = queryFromFilters({ ...filters.value, page: 1, sort: preset.value.sort, direction: preset.value.direction })
+
+  return JSON.stringify(current) === JSON.stringify(queryFromFilters(preset.value))
 })
 
-const query = computed(() => ({
-  page: page.value,
-  per_page: 20,
-  ...(debouncedSearch.value ? { search: debouncedSearch.value } : {}),
-  ...(stage.value !== 'all' ? { stage: stage.value } : {}),
-  ...(minScore.value > 0 ? { min_score: minScore.value } : {})
-}))
+/**
+ * Every filter change is a URL change; the URL is the only state. `replace`
+ * rather than `push`, so Back leaves the page instead of walking through
+ * every keystroke of a search.
+ */
+function applyFilters(next: CandidateFilters, { keepPage = false } = {}) {
+  return router.replace({
+    path: route.path,
+    query: queryFromFilters({ ...next, page: keepPage ? next.page : 1 })
+  })
+}
+
+function update(patch: Partial<CandidateFilters>) {
+  return applyFilters({ ...filters.value, ...patch })
+}
+
+function goToPage(page: number) {
+  return applyFilters({ ...filters.value, page }, { keepPage: true })
+}
+
+const query = computed(() => apiQueryFromFilters(filters.value, PER_PAGE))
 
 const { data, pending, refresh } = await useAsyncData(
   'candidates',
@@ -48,17 +82,29 @@ const { data, pending, refresh } = await useAsyncData(
 
 const rows = computed(() => data.value?.data ?? [])
 const total = computed(() => data.value?.meta.total ?? 0)
+const stages = computed(() => meta.value?.data.stages ?? [])
 
 const columns: TableColumn<Candidate>[] = [
+  { id: 'mufb', header: 'MUFB' },
   { accessorKey: 'score', header: 'Score' },
   { id: 'address', header: 'Property' },
+  { id: 'units', header: 'Units' },
+  { id: 'epc', header: 'EPC' },
   { id: 'company', header: 'Proprietor' },
-  { accessorKey: 'estimated_units', header: 'Units' },
-  { id: 'yield', header: 'Yield' },
-  { id: 'uplift', header: 'Est. uplift' },
   { id: 'stage', header: 'Stage' },
   { id: 'actions', header: '' }
 ]
+
+function mufbColor(level: Candidate['mufb']['level']) {
+  switch (level) {
+    case 'high':
+      return 'success'
+    case 'medium':
+      return 'warning'
+    default:
+      return 'neutral'
+  }
+}
 
 async function changeStage(candidate: Candidate, next: PipelineStage) {
   try {
@@ -83,10 +129,10 @@ async function changeStage(candidate: Candidate, next: PipelineStage) {
 }
 
 function stageMenu(candidate: Candidate) {
-  return [(meta.value?.data.stages ?? []).map(s => ({
-    label: s.label,
-    icon: candidate.stage === s.value ? 'i-lucide-check' : undefined,
-    onSelect: () => changeStage(candidate, s.value)
+  return [stages.value.map(stage => ({
+    label: stage.label,
+    icon: candidate.stage === stage.value ? 'i-lucide-check' : undefined,
+    onSelect: () => changeStage(candidate, stage.value)
   }))]
 }
 </script>
@@ -100,48 +146,22 @@ function stageMenu(candidate: Candidate) {
             color="neutral"
             variant="subtle"
           >
-            {{ formatNumber(total) }} total
+            {{ formatNumber(total) }} matching
           </UBadge>
         </template>
       </UDashboardNavbar>
 
-      <UDashboardToolbar>
-        <template #left>
-          <UInput
-            v-model="search"
-            icon="i-lucide-search"
-            placeholder="Address, title number, postcode…"
-            class="w-72"
-          />
-          <USelect
-            v-model="stage"
-            :items="stageOptions"
-            value-key="value"
-            class="w-44"
-          />
-          <div class="flex items-center gap-2">
-            <span class="text-sm text-muted whitespace-nowrap">Min score</span>
-            <UInputNumber
-              v-model="minScore"
-              :min="0"
-              :max="100"
-              :step="5"
-              class="w-28"
-            />
-          </div>
-        </template>
-
-        <template #right>
-          <UButton
-            icon="i-lucide-refresh-cw"
-            color="neutral"
-            variant="ghost"
-            :loading="pending"
-            aria-label="Refresh"
-            @click="refresh()"
-          />
-        </template>
-      </UDashboardToolbar>
+      <CandidateListFilters
+        :filters="filters"
+        :stages="stages"
+        :options="filterOptions?.data ?? null"
+        :is-preset="isPreset"
+        :loading="pending"
+        @update="update"
+        @preset="applyFilters(preset)"
+        @clear="applyFilters(emptyCandidateFilters())"
+        @refresh="refresh()"
+      />
     </template>
 
     <template #body>
@@ -151,6 +171,21 @@ function stageMenu(candidate: Candidate) {
         :loading="pending"
         class="flex-1"
       >
+        <template #mufb-cell="{ row }">
+          <UTooltip
+            :text="row.original.mufb.signals.join(' · ') || 'No block-of-flats evidence yet'"
+            :disabled="!row.original.mufb.signals.length"
+          >
+            <UBadge
+              :color="mufbColor(row.original.mufb.level)"
+              variant="subtle"
+              class="tabular-nums"
+            >
+              {{ row.original.mufb.confidence }}
+            </UBadge>
+          </UTooltip>
+        </template>
+
         <template #score-cell="{ row }">
           <UBadge
             :color="scoreColor(row.original.score)"
@@ -177,32 +212,61 @@ function stageMenu(candidate: Candidate) {
           </NuxtLink>
         </template>
 
+        <template #units-cell="{ row }">
+          <div class="tabular-nums">
+            <span>{{ row.original.units ?? '—' }}</span>
+            <p
+              v-if="row.original.units_source"
+              class="text-xs text-muted"
+            >
+              {{ row.original.units_source === 'epc' ? 'from EPCs' : 'estimated' }}
+            </p>
+          </div>
+        </template>
+
+        <template #epc-cell="{ row }">
+          <div
+            v-if="row.original.title?.epc?.is_usable"
+            class="flex items-center gap-2"
+          >
+            <CandidateEpcRating :rating="row.original.title.epc.current_rating" />
+            <span class="text-xs text-muted whitespace-nowrap tabular-nums">
+              {{ row.original.title.epc.certificate_count }} cert{{ row.original.title.epc.certificate_count === 1 ? '' : 's' }}
+            </span>
+          </div>
+          <span
+            v-else
+            class="text-xs text-muted"
+          >
+            No match
+          </span>
+        </template>
+
         <template #company-cell="{ row }">
           <div class="min-w-0 max-w-xs">
             <p class="truncate">
               {{ row.original.title?.company?.name ?? '—' }}
             </p>
-            <p class="text-xs text-muted truncate">
+            <p
+              v-if="row.original.title?.company?.distress_signals?.length"
+              class="text-xs text-warning truncate"
+            >
+              <UIcon
+                name="i-lucide-triangle-alert"
+                class="align-[-2px]"
+              />
+              {{ row.original.title.company.distress_signals.join(' · ') }}
+            </p>
+            <p
+              v-else
+              class="text-xs text-muted truncate"
+            >
               {{ row.original.title?.company?.company_number }}
               <template v-if="row.original.title?.company?.has_charges">
                 · has charges
               </template>
             </p>
           </div>
-        </template>
-
-        <template #estimated_units-cell="{ row }">
-          <span class="tabular-nums">{{ row.original.estimated_units ?? '—' }}</span>
-        </template>
-
-        <template #yield-cell="{ row }">
-          <span class="tabular-nums">{{ formatPercent(row.original.gross_yield) }}</span>
-        </template>
-
-        <template #uplift-cell="{ row }">
-          <span class="tabular-nums">
-            {{ formatMoney(row.original.estimated_uplift, { compact: true }) }}
-          </span>
         </template>
 
         <template #stage-cell="{ row }">
@@ -230,16 +294,25 @@ function stageMenu(candidate: Candidate) {
 
         <template #empty>
           <div class="py-8 text-center text-sm text-muted">
-            No candidates match these filters.
+            <p>No candidates match these filters.</p>
+            <UButton
+              class="mt-2"
+              size="xs"
+              color="neutral"
+              variant="outline"
+              label="Clear all filters"
+              @click="applyFilters(emptyCandidateFilters())"
+            />
           </div>
         </template>
       </UTable>
 
       <div class="flex justify-center pt-4">
         <UPagination
-          v-model:page="page"
+          :page="filters.page"
           :total="total"
-          :items-per-page="20"
+          :items-per-page="PER_PAGE"
+          @update:page="goToPage"
         />
       </div>
     </template>
