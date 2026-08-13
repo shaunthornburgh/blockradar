@@ -82,7 +82,11 @@ export default defineNuxtConfig({
         'lucide:arrow-up-down',
         'lucide:arrow-down-wide-narrow',
         'lucide:arrow-up-narrow-wide',
-        'lucide:x'
+        'lucide:x',
+        // Bound through a ternary on the title pipeline card.
+        'lucide:circle-slash',
+        'lucide:filter-x',
+        'lucide:circle-help'
       ]
     }
   }

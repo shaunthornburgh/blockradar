@@ -91,6 +91,35 @@ export interface EpcCertificate {
   }
 }
 
+/**
+ * Enough of a candidate to link to it. Deliberately not the full Candidate —
+ * that embeds the title, which embeds this.
+ */
+export interface CandidateSummary {
+  id: number
+  stage: PipelineStage
+  stage_label: string
+  score: number
+  scored_at: string | null
+  mufb: MufbConfidence
+  is_archived: boolean
+  created_at: string | null
+}
+
+/**
+ * Why a title is, or is not, in the MUFB pipeline.
+ *
+ * `qualifies_now` re-runs the current filter config, which is not necessarily
+ * the one that ran when the title was imported. `reason` is null both when the
+ * title qualifies and when it is already a candidate.
+ */
+export interface TitlePipelineStatus {
+  is_candidate: boolean
+  qualifies_now: boolean
+  reason: string | null
+  reason_label: string | null
+}
+
 export interface Title {
   id: number
   title_number: string
@@ -115,8 +144,14 @@ export interface Title {
   first_seen_at?: string | null
   last_seen_at?: string | null
   epc?: EpcAggregate
-  company?: Company
+  company?: Company | null
   epc_certificates?: EpcCertificate[]
+  /** Set on the list endpoint only. */
+  is_candidate?: boolean
+  /** Set on the detail endpoint only; null when the title never reached the pipeline. */
+  candidate?: CandidateSummary | null
+  /** Set on the detail endpoint only. */
+  pipeline?: TitlePipelineStatus
 }
 
 export interface CandidateNote {

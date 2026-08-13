@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\Title;
+use App\Services\Candidates\CandidateFilter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -56,8 +57,48 @@ class TitleResource extends JsonResource
                 'latest_lodgement_date' => $this->epc_latest_lodgement_date?->toDateString(),
             ],
 
+            // Set by withExists('candidate') on the list endpoint, so a row can
+            // show that it is already in the pipeline without loading it.
+            'is_candidate' => $this->when(
+                $this->resource->candidate_exists !== null,
+                fn () => (bool) $this->resource->candidate_exists
+            ),
+
             'company' => CompanyResource::make($this->whenLoaded('company')),
             'epc_certificates' => EpcCertificateResource::collection($this->whenLoaded('epcCertificates')),
+
+            // Only on the detail endpoint, which is the one that loads the
+            // relation. Keyed off relationLoaded rather than whenLoaded so
+            // that "no candidate" is an explicit null the page can act on,
+            // rather than an absent key indistinguishable from "not asked".
+            $this->mergeWhen($this->relationLoaded('candidate'), fn () => [
+                'candidate' => $this->candidate
+                    ? CandidateSummaryResource::make($this->candidate)
+                    : null,
+                'pipeline' => $this->pipelineStatus(),
+            ]),
+        ];
+    }
+
+    /**
+     * Why this title is, or is not, in the MUFB pipeline.
+     *
+     * `qualifies_now` re-runs the current filter, which is not necessarily the
+     * one that ran at import — the config may have moved since. The two
+     * together are what let the page explain a mismatch instead of guessing at
+     * one.
+     *
+     * @return array<string, mixed>
+     */
+    private function pipelineStatus(): array
+    {
+        $reason = app(CandidateFilter::class)->rejectionReason($this->resource);
+
+        return [
+            'is_candidate' => $this->candidate !== null,
+            'qualifies_now' => $reason === null,
+            'reason' => $reason,
+            'reason_label' => $reason === null ? null : CandidateFilter::reasonLabel($reason),
         ];
     }
 }

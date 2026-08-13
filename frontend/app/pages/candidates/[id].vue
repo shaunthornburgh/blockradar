@@ -21,7 +21,9 @@ const { data: meta } = await useAsyncData(
 
 const candidate = computed(() => data.value?.data)
 const title = computed(() => candidate.value?.title)
-const company = computed(() => title.value?.company)
+// Normalised: the API sends null for an unmatched proprietor, and the cards
+// below take an optional company rather than a nullable one.
+const company = computed(() => title.value?.company ?? undefined)
 
 useSeoMeta({
   title: () => title.value?.property_address ?? 'Candidate'
@@ -198,7 +200,7 @@ async function copyTitleNumber() {
         </UCard>
 
         <!-- Key metrics -->
-        <CandidateMetricsRow :candidate="candidate" />
+        <CandidateMetricsRow :title="title" />
 
         <!-- Research links get top billing: they are what turns a row in a
              table into a decision. -->

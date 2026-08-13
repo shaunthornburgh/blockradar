@@ -154,11 +154,15 @@ block-radar/
     └── app/
         ├── components/candidate/  # Detail page cards: MetricsRow, ScoreBreakdown,
         │                       #   PropertyCard, OwnershipCard, ResearchLinks,
-        │                       #   DealEstimates, WorkflowCard, NotesPanel, EpcRating
+        │                       #   DealEstimates, WorkflowCard, NotesPanel, EpcRating,
+        │                       #   ListFilters. The title-shaped ones are shared
+        │                       #   with the title detail page.
+        ├── components/title/   # PipelineCard
         ├── layouts/            # default (dashboard shell), auth
         ├── pages/              # index, login, candidates, candidates/[id],
-        │                       #   titles, companies
-        ├── composables/        # useApi, useAuth, useDebouncedRef, useResearchLinks
+        │                       #   titles, titles/[id], companies
+        ├── composables/        # useApi, useAuth, useDebouncedRef, useResearchLinks,
+        │                       #   useCandidateFilters
         ├── middleware/         # auth.global.ts
         ├── utils/format.ts     # Money, dates, score and stage colours
         └── types/index.ts      # Shared API types
@@ -216,7 +220,8 @@ it is deliberately not `*`.
 | `GET` | `/api/users` | Assignee picker |
 | `PATCH` | `/api/candidates/{id}` | Stage, assignee, next action, estimates |
 | `GET`/`POST` | `/api/candidates/{id}/notes` | |
-| `GET` | `/api/titles` | `split_only=1` applies the freehold + MAI filter |
+| `GET` | `/api/titles` | `split_only=1` applies the freehold + MAI filter. Each row carries `is_candidate`. |
+| `GET` | `/api/titles/{id}` | [Title detail](#inspecting-a-title): CCOD row, company, EPC certificates, pipeline status |
 | `GET` | `/api/companies` | |
 
 Quick check from the host:
@@ -314,6 +319,47 @@ curl -s "http://localhost:8000/api/candidates?has_epc=true&min_units=4&sort=mufb
 # London blocks whose owner is under filing pressure
 curl -s "http://localhost:8000/api/candidates?min_mufb=high&region=GREATER%20LONDON&company_distressed=true" \
   -H "Authorization: Bearer $TOKEN" | jq '.meta.total'
+```
+
+---
+
+## Inspecting a title
+
+Candidates are the workflow; titles are the inventory. `/titles/{id}` is a
+**read-only research view** of one CCOD row — for answering "what is this, who
+owns it, and why is it not a candidate?" It has no pipeline stages, no notes and
+no editable estimates; where a title has reached the pipeline it links across to
+`/candidates/{id}` and stops there.
+
+Reach it from the address in the titles list, or from the arrow at the end of a
+row. Rows already in the pipeline are badged **Candidate**.
+
+The page shows the CCOD row and its unit estimate, the proprietor company with
+its Companies House distress signals, the EPC aggregates and every matched
+certificate, and the same external research links as the candidate page. It
+stays useful when the company or the EPC match is missing, which is the common
+case across 3.7M titles — each section says what is absent rather than
+rendering blank.
+
+### Pipeline status
+
+`GET /api/titles/{id}` returns a `pipeline` block, and the page turns it into
+one of three states:
+
+| State | Meaning |
+| --- | --- |
+| `is_candidate: true` | In the pipeline. Shows stage, score, MUFB confidence and its signals, and links to the candidate. |
+| `reason` is set | Filtered out. The reason comes from `CandidateFilter` — not freehold, no multiple-address indicator, an excluded address keyword, outside the target region or postcode area, below the minimum units, or an EPC that describes one whole house. |
+| Neither | Meets the filter but has no candidate row. Candidates are created during a CCOD import, so the title was probably imported under a narrower filter, or its candidate was removed. |
+
+`qualifies_now` re-runs the filter **as configured now**, which is not
+necessarily the one that ran at import — the page says so rather than implying
+the two are the same. Reasons only ever restate data we hold; nothing here
+guesses at why a building is or is not a block.
+
+```bash
+curl -s http://localhost:8000/api/titles/12215 -H "Authorization: Bearer $TOKEN" \
+  | jq '.data | {title_number, pipeline, candidate: .candidate.id}'
 ```
 
 ---

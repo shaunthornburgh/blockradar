@@ -38,7 +38,9 @@ const columns: TableColumn<Title>[] = [
   { id: 'proprietor', header: 'Proprietor' },
   { accessorKey: 'tenure_label', header: 'Tenure' },
   { id: 'price', header: 'Price paid' },
-  { id: 'added', header: 'Proprietor added' }
+  { id: 'added', header: 'Proprietor added' },
+  { id: 'pipeline', header: 'Pipeline' },
+  { id: 'actions', header: '' }
 ]
 </script>
 
@@ -91,14 +93,43 @@ const columns: TableColumn<Title>[] = [
         class="flex-1"
       >
         <template #address-cell="{ row }">
-          <div class="min-w-0 max-w-md">
-            <p class="font-medium truncate">
+          <NuxtLink
+            :to="`/titles/${row.original.id}`"
+            class="block min-w-0 max-w-md group"
+          >
+            <p class="font-medium truncate group-hover:text-primary transition-colors">
               {{ row.original.property_address }}
             </p>
             <p class="text-xs text-muted truncate">
               {{ row.original.postcode }} · {{ row.original.region }}
             </p>
-          </div>
+          </NuxtLink>
+        </template>
+
+        <template #pipeline-cell="{ row }">
+          <UBadge
+            v-if="row.original.is_candidate"
+            color="primary"
+            variant="subtle"
+            size="sm"
+          >
+            Candidate
+          </UBadge>
+          <span
+            v-else
+            class="text-xs text-dimmed"
+          >—</span>
+        </template>
+
+        <template #actions-cell="{ row }">
+          <UButton
+            :to="`/titles/${row.original.id}`"
+            icon="i-lucide-arrow-right"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            :aria-label="`Open ${row.original.title_number}`"
+          />
         </template>
 
         <template #proprietor-cell="{ row }">

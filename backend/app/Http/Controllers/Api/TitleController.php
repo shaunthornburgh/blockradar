@@ -25,6 +25,9 @@ class TitleController extends Controller
 
         $titles = Title::query()
             ->with('company')
+            // One EXISTS per row, so the list can say which titles are already
+            // in the pipeline without loading the candidates themselves.
+            ->withExists('candidate')
             ->when($splitOnly, fn ($query) => $query->splitCandidates())
             ->when(isset($filters['region']), fn ($query) => $query->inRegion($filters['region']))
             ->when(isset($filters['search']), function ($query) use ($filters) {
@@ -45,8 +48,27 @@ class TitleController extends Controller
         return TitleResource::collection($titles);
     }
 
+    /**
+     * The read-only research view of one title: the CCOD row, its proprietor
+     * company with the Companies House signals, the matched EPC certificates,
+     * and whether it reached the MUFB pipeline.
+     */
     public function show(Title $title): TitleResource
     {
-        return TitleResource::make($title->load('company', 'candidate'));
+        $title->load([
+            'company',
+            'candidate',
+            // Freshest survey first — that is the one the aggregates came from.
+            'epcCertificates' => fn ($query) => $query
+                ->orderByDesc('lodgement_date')
+                ->limit(100),
+        ]);
+
+        // The candidate summary reports MUFB confidence, which is derived from
+        // the title. Handing it the one already in memory saves a query and
+        // guarantees the two describe the same row.
+        $title->candidate?->setRelation('title', $title);
+
+        return TitleResource::make($title);
     }
 }

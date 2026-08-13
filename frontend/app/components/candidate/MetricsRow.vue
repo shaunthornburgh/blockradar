@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import type { Candidate } from '~/types'
+import type { Title } from '~/types'
 
-const props = defineProps<{ candidate: Candidate }>()
+/**
+ * Every figure here comes off the title and its company, so the title detail
+ * page shows the same row as the candidate page without a second copy of it.
+ */
+const props = defineProps<{ title: Title }>()
 
-const title = computed(() => props.candidate.title)
+const title = computed(() => props.title)
 const company = computed(() => title.value?.company)
 const epc = computed(() => title.value?.epc)
 

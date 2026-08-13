@@ -15,6 +15,23 @@ use App\Models\Title;
 class CandidateFilter
 {
     /**
+     * What each rejection reason means, for the title detail page.
+     *
+     * Kept beside the checks that produce them so the two cannot drift. Every
+     * one is a statement about data we actually hold — nothing here guesses at
+     * why a building is or is not a block.
+     */
+    public const REASON_LABELS = [
+        'not_freehold' => 'The title is not freehold, so its flats cannot be sold off on new leases.',
+        'single_address' => 'CCOD does not flag this title as covering multiple addresses.',
+        'excluded_address' => 'The address contains a keyword that is almost never a splittable residential block — a car park, garage, land parcel or commercial unit.',
+        'outside_target_region' => 'The title is outside the regions currently being sourced.',
+        'outside_target_postcode_area' => 'The title is outside the postcode areas currently being sourced.',
+        'below_minimum_units' => 'The estimated unit count is below the minimum worth pursuing.',
+        'epc_single_dwelling' => 'A trustworthy EPC match describes one whole house rather than flats, so the multiple-address flag is something else — an outbuilding or a re-numbered plot.',
+    ];
+
+    /**
      * Returns null when the title qualifies, or a short machine-readable
      * reason when it does not. Reasons are aggregated into the import summary
      * so it is obvious why a run produced few candidates.
@@ -55,6 +72,14 @@ class CandidateFilter
     public function passes(Title $title): bool
     {
         return $this->rejectionReason($title) === null;
+    }
+
+    public static function reasonLabel(string $reason): string
+    {
+        return self::REASON_LABELS[$reason]
+            // A reason added to rejectionReason() without a label here. Better
+            // to show the raw key than to say nothing.
+            ?? 'Filtered out of the pipeline: '.str_replace('_', ' ', $reason).'.';
     }
 
     private function isExcludedAddress(?string $address): bool
